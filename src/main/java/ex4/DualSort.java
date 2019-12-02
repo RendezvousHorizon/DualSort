@@ -55,7 +55,7 @@ class DualSortMapper extends Mapper<Object, Text, Text, NullWritable> {
     protected void map(Object key, Text value, Context context) throws IOException, InterruptedException {
         StringTokenizer stringTokenizer = new StringTokenizer(value.toString());
         if(stringTokenizer.hasMoreTokens()) {
-            // 第一列和第二列共同作为 key，中间用制表符隔开，value为空字符串即可
+            // 第一列和第二列共同作为 key，中间用制表符隔开，value为空即可
             outKey.set(stringTokenizer.nextToken() + "\t" + stringTokenizer.nextToken());
             context.write(outKey, NullWritable.get());
         }
@@ -102,6 +102,7 @@ class DualSortCompare extends WritableComparator {
         String[] b_tokens = b.toString().split("\t");
         int a_first = Integer.parseInt(a_tokens[0]);
         int b_first = Integer.parseInt(b_tokens[0]);
+        // 先比较第一列，当第一列相等时比较第二列
         if(a_first != b_first) {
             return Integer.compare(a_first, b_first);
         } else {
@@ -127,6 +128,7 @@ class DualGroupingComparator extends WritableComparator {
     public int compare(WritableComparable a, WritableComparable b) {
         int a_first = Integer.parseInt(a.toString().split("\t")[0]);
         int b_first = Integer.parseInt(b.toString().split("\t")[0]);
+        // key第一列相同的归为一组
         return Integer.compare(a_first, b_first);
     }
 }
