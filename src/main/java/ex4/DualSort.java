@@ -1,7 +1,9 @@
 package ex4;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.NullWritable;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.io.WritableComparable;
 import org.apache.hadoop.io.WritableComparator;
@@ -20,25 +22,34 @@ public class DualSort {
     public static void main(String[] args) throws Exception {
         BasicConfigurator.configure(); // 使用默认的日志配置，可以在idea运行时显示日志
         Configuration conf = new Configuration();
+        // 判断输出路径是否存在，如果存在，则删除
+        Path outPath = new Path(args[1]);
+        FileSystem hdfs = outPath.getFileSystem(conf);
+        if (hdfs.isDirectory(outPath)) {
+            hdfs.delete(outPath, true);
+        }
+
+        // 创建一个任务并配置
         Job job = Job.getInstance(conf, "DualSort");
         job.setJarByClass(DualSort.class);
         job.setMapperClass(DualSortMapper.class);
         job.setPartitionerClass(DualSortPartition.class);
         job.setSortComparatorClass(DualSortCompare.class);
+        job.setGroupingComparatorClass(DualGroupingComparator.class);
         job.setReducerClass(DualSortReducer.class);
         job.setOutputKeyClass(Text.class);
-        job.setOutputValueClass(Text.class);
+        job.setOutputValueClass(NullWritable.class);
 
         FileInputFormat.addInputPath(job, new Path(args[0]));
         FileOutputFormat.setOutputPath(job, new Path(args[1]));
 
+        // 执行任务
         System.out.println(job.waitForCompletion(true) ? 0 : 1);
     }
 }
 
-class DualSortMapper extends Mapper<Object, Text, Text, Text> {
+class DualSortMapper extends Mapper<Object, Text, Text, NullWritable> {
     private Text outKey = new Text();
-    private Text outValue = new Text();
 
     @Override
     protected void map(Object key, Text value, Context context) throws IOException, InterruptedException {
@@ -46,11 +57,14 @@ class DualSortMapper extends Mapper<Object, Text, Text, Text> {
         if(stringTokenizer.hasMoreTokens()) {
             // 第一列和第二列共同作为 key，中间用制表符隔开，value为空字符串即可
             outKey.set(stringTokenizer.nextToken() + "\t" + stringTokenizer.nextToken());
-            context.write(outKey, outValue);
+            context.write(outKey, NullWritable.get());
         }
     }
 }
 
+/**
+ * 使用自定义分区类决定将key发送给哪个Reducer结点进行处理
+ */
 class DualSortPartition extends HashPartitioner<Text, Text> {
     @Override
     public int getPartition(Text key, Text value, int numReduceTasks) {
@@ -72,8 +86,13 @@ class DualSortPartition extends HashPartitioner<Text, Text> {
     }
 }
 
+
+/**
+ * 使用自定义类对key进行排序
+ * 对key的第一列进行升序，第二列进行降序
+ */
 class DualSortCompare extends WritableComparator {
-    DualSortCompare(){
+    DualSortCompare() {
         super(Text.class, true);
     }
 
@@ -93,13 +112,31 @@ class DualSortCompare extends WritableComparator {
     }
 }
 
-class DualSortReducer extends Reducer<Text, Text, Text, Text> {
-    private Text outValue = new Text();
+/**
+ * 在分区、排序之后使用自定义分组类决定将key发送给哪个reduce方法进行处理
+ * 由于key由两列组成，虽然使用分区将相同的key分配给相同的结点执行，但是Reducer结点会创建和不同key的数量相同的reduce方法处理不同的key，
+ * 为了减少reduce方法的执行次数，我们需要key第一列相同的键值对都由一个reduce方法执行，就需要GroupingComparator类将Reducer结点上的key进行分组。
+ * Reduce类中的reduce方法中key一样，values有多个，是什么情况下的key是一样的，能不能自定义，这就是GroupingComparator的作用。
+ */
+class DualGroupingComparator extends WritableComparator {
+    DualGroupingComparator() {
+        super(Text.class, true);
+    }
+
     @Override
-    protected void reduce(Text key, Iterable<Text> values, Context context) throws IOException, InterruptedException {
+    public int compare(WritableComparable a, WritableComparable b) {
+        int a_first = Integer.parseInt(a.toString().split("\t")[0]);
+        int b_first = Integer.parseInt(b.toString().split("\t")[0]);
+        return Integer.compare(a_first, b_first);
+    }
+}
+
+class DualSortReducer extends Reducer<Text, NullWritable, Text, NullWritable> {
+    @Override
+    protected void reduce(Text key, Iterable<NullWritable> values, Context context) throws IOException, InterruptedException {
         // 对排好序的结果遍历输出即可
-        for(Text num : values) {
-            context.write(key, outValue);
+        for(NullWritable n : values) {
+            context.write(key, NullWritable.get());
         }
     }
 }
