@@ -37,6 +37,8 @@ public class DualSort {
         job.setSortComparatorClass(DualSortCompare.class);
         job.setGroupingComparatorClass(DualGroupingComparator.class);
         job.setReducerClass(DualSortReducer.class);
+        job.setMapOutputKeyClass(Text.class);
+        job.setMapOutputValueClass(Text.class);
         job.setOutputKeyClass(Text.class);
         job.setOutputValueClass(NullWritable.class);
 
@@ -44,12 +46,13 @@ public class DualSort {
         FileOutputFormat.setOutputPath(job, new Path(args[1]));
 
         // 执行任务
-        System.out.println(job.waitForCompletion(true) ? 0 : 1);
+        System.exit(job.waitForCompletion(true) ? 0 : 1);
     }
 }
 
-class DualSortMapper extends Mapper<Object, Text, Text, NullWritable> {
+class DualSortMapper extends Mapper<Object, Text, Text, Text> {
     private Text outKey = new Text();
+    private Text outValue = new Text();
 
     @Override
     protected void map(Object key, Text value, Context context) throws IOException, InterruptedException {
@@ -57,7 +60,7 @@ class DualSortMapper extends Mapper<Object, Text, Text, NullWritable> {
         if(stringTokenizer.hasMoreTokens()) {
             // 第一列和第二列共同作为 key，中间用制表符隔开，value为空即可
             outKey.set(stringTokenizer.nextToken() + "\t" + stringTokenizer.nextToken());
-            context.write(outKey, NullWritable.get());
+            context.write(outKey, outValue);
         }
     }
 }
@@ -85,7 +88,6 @@ class DualSortPartition extends HashPartitioner<Text, Text> {
         return part;
     }
 }
-
 
 /**
  * 使用自定义类对key进行排序
@@ -133,11 +135,11 @@ class DualGroupingComparator extends WritableComparator {
     }
 }
 
-class DualSortReducer extends Reducer<Text, NullWritable, Text, NullWritable> {
+class DualSortReducer extends Reducer<Text, Text, Text, NullWritable> {
     @Override
-    protected void reduce(Text key, Iterable<NullWritable> values, Context context) throws IOException, InterruptedException {
+    protected void reduce(Text key, Iterable<Text> values, Context context) throws IOException, InterruptedException {
         // 对排好序的结果遍历输出即可
-        for(NullWritable n : values) {
+        for(Text t : values) {
             context.write(key, NullWritable.get());
         }
     }
